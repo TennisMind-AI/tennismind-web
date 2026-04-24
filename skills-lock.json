@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "create-call": {
+      "source": "VapiAI/skills",
+      "sourceType": "github",
+      "computedHash": "6cefb695376bea784998f11f6c3504e331655389cef7b45f958fe9fdc234c206"
+    }
+  }
+}
