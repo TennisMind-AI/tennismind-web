@@ -1,8 +1,6 @@
 import { createClient } from 'npm:@insforge/sdk'
 
-// TODO: swap for the real analysis endpoint. Until it's live, the call will
-// fail and we fall back to a mock response so the UX can be tested end-to-end.
-const EXTERNAL_API_URL = 'https://placeholder.ai/analyze'
+const EXTERNAL_API_URL = 'https://analysis-agent-production.up.railway.app/analyze'
 
 const corsHeaders: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
@@ -40,21 +38,20 @@ export default async function (req: Request): Promise<Response> {
     return json({ error: 'Missing video_url' }, 400)
   }
 
-  let analysisText: string
-  try {
-    const resp = await fetch(EXTERNAL_API_URL, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ user_id: userId, video_url: videoUrl }),
-    })
-    if (!resp.ok) throw new Error(`Analysis API returned ${resp.status}`)
-    const payload = await resp.json()
-    const text = typeof payload?.text === 'string' ? payload.text.trim() : ''
-    if (!text) throw new Error('Empty analysis text')
-    analysisText = text
-  } catch (err) {
-    console.warn('[analyze-video] external API failed, using mock:', err)
-    analysisText = mockAnalysis(videoUrl)
+  const resp = await fetch(EXTERNAL_API_URL, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ user_id: userId, video_url: videoUrl }),
+  })
+  if (!resp.ok) {
+    const detail = await resp.text().catch(() => '')
+    console.error('[analyze-video] external API error', resp.status, detail)
+    return json({ error: `Analysis API returned ${resp.status}` }, 502)
+  }
+  const payload = await resp.json().catch(() => null)
+  const analysisText = typeof payload?.text === 'string' ? payload.text.trim() : ''
+  if (!analysisText) {
+    return json({ error: 'Analysis API returned empty text' }, 502)
   }
 
   // Persist only for signed-in callers.
@@ -69,7 +66,6 @@ export default async function (req: Request): Promise<Response> {
     .single()
 
   if (insertError || !session) {
-    // Don't drop the analysis because the DB write failed; return what we have.
     console.warn('[analyze-video] DB insert failed:', insertError)
     return json({ session_id: null, text: analysisText })
   }
@@ -82,16 +78,4 @@ function json(body: unknown, status = 200): Response {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   })
-}
-
-function mockAnalysis(videoUrl: string): string {
-  return `Analysis of ${videoUrl}
-
-Forehand — your take-back is starting about 0.18s after your split step. Try to begin the unit turn before your opponent's racquet strikes the ball; you'll pick up roughly 8 mph of head speed.
-
-Contact point — you're striking about 6 inches behind your lead hip. Step into the ball and drive the contact forward. The over-shoulder finish on your better swings is clean, so groove that.
-
-Serve toss — peaks at ~92% of target height. Toss to where your fully extended racquet would meet the ball at its apex.
-
-(This is a placeholder response. Point EXTERNAL_API_URL in the edge function at the real analysis endpoint to replace it.)`
 }
